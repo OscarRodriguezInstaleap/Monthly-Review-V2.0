@@ -27,7 +27,7 @@ def kpi_cards(mrr_df: pd.DataFrame):
         dbc.Col(dbc.Card(dbc.CardBody([html.Small("MRR Total"), html.H3(f"${k['total_last']:,.0f}"), html.Small(k["last_period"])])), md=3),
         dbc.Col(dbc.Card(dbc.CardBody([html.Small("MoM"), html.H3(f"{k['mom']:,.1f}%" if k["mom"] is not None else "—")])), md=2),
         dbc.Col(dbc.Card(dbc.CardBody([html.Small("YoY"), html.H3(f"{k['yoy']:,.1f}%" if k["yoy"] is not None else "—")])), md=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.Small("ARR"), html.H3(f\"${k['arr']:,.0f}\")])), md=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.Small("ARR"), html.H3(f"${k['arr']:,.0f}")])), md=2),
     ], className="g-3")
 
 def line_with_forecast(hist: pd.DataFrame, title: str, horizon=6, label_mode="extrema"):
