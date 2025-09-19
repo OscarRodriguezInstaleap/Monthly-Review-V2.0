@@ -95,7 +95,7 @@ app.layout = dbc.Container([
         dbc.Col(dcc.Dropdown(id="client-dd", options=options(clients), value=[], multi=True, placeholder="Clientes (opcional)"), md=6),
     ], className="mb-2"),
     dbc.Button("Actualizar datos", id="refresh-btn", color="secondary", size="sm"),
-    dcc.Store(id="data-store"),
+    dcc.Store(id="data-store", data=df.to_dict("records")),
 
     html.Br(),
     html.Div(id="kpis-row"),
