@@ -99,6 +99,7 @@ app.layout = dbc.Container([
 
     html.Br(),
     html.Div(id="kpis-row"),
+html.Div(id="data-health"),
 
     html.Br(),
     dbc.Tabs(id="tabs", active_tab="tab-mrr", children=[
@@ -150,6 +151,24 @@ def update_kpis(z_sel, t_sel, c_sel, data):
     if m.empty: return html.Div("Sin MRR con los filtros actuales.")
     return kpi_cards(m)
 
+# Data health (conteo por métrica)
+@app.callback(
+    Output("data-health","children"),
+    Input("data-store","data")
+)
+def data_health(data):
+    d = pd.DataFrame(data or [])
+    if d.empty:
+        return html.Div("Sin datos cargados.", style={"color":"#b00"})
+    vc = d["metric"].value_counts().to_dict()
+    chips = []
+    for k in ["MRR","CIHS","Transactions"]:
+        n = vc.get(k, 0)
+        color = "success" if n>0 else "warning"
+        chips.append(dbc.Badge(f"{k}: {n}", color=color, className="me-2"))
+    return html.Div(chips, className="mb-2")
+
+
 # Tabs content
 @app.callback(
     Output("tab-content","children"),
@@ -175,21 +194,41 @@ def render_tab(tab, z_sel, t_sel, c_sel, data):
             ])), md=4)
         ])
 
-    if tab=="tab-cihs":
-        c = f[f["metric"]=="CIHS"].groupby("date", as_index=False)["value"].sum().sort_values("date")
-        fig, fc = line_with_forecast(c, "CIHS (suma total) — Histórico + Pronóstico", horizon=6, label_mode="extrema")
-        return dbc.Row([
-            dbc.Col(dcc.Graph(figure=fig), md=8),
-            dbc.Col(dbc.Card(dbc.CardBody([
-                html.H6("Datos de pronóstico CIHS"),
-                dbc.Button("Descargar CSV", id="btn-dl-cihs", color="primary")
-            ])), md=4)
-        ])
+if tab=="tab-cihs":
+    c = f[f["metric"]=="CIHS"].groupby("date", as_index=False)["value"].sum().sort_values("date")
+    if c.empty:
+        return html.Div("No hay datos de CIHS con los filtros actuales.")
+    fig, fc = line_with_forecast(c, "CIHS (suma total) — Histórico + Pronóstico", horizon=6, label_mode="extrema")
+    merged = c.rename(columns={"value":"historico"}).merge(fc, on="date", how="outer").sort_values("date")
+    merged["period"] = merged["date"].dt.to_period("M").astype(str)
+    table = dbc.Table.from_dataframe(merged, striped=True, hover=True, bordered=False)
+    return dbc.Row([
+        dbc.Col(dcc.Graph(figure=fig), md=7),
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.H6("Datos de pronóstico CIHS"),
+            dbc.Button("Descargar CSV", id="btn-dl-cihs", color="primary", className="mb-2"),
+            table
+        ])), md=5)
+    ])
 
-    if tab=="tab-tx":
-        t = f[f["metric"]=="Transactions"].groupby("date", as_index=False)["value"].sum().sort_values("date")
-        fig, fc = line_with_forecast(t, "Transacciones — Histórico + Pronóstico", horizon=6, label_mode="none")
-        return dcc.Graph(figure=fig)
+
+if tab=="tab-tx":
+    t = f[f["metric"]=="Transactions"].groupby("date", as_index=False)["value"].sum().sort_values("date")
+    if t.empty:
+        return html.Div("No hay datos de Transacciones con los filtros actuales.")
+    fig, fc = line_with_forecast(t, "Transacciones — Histórico + Pronóstico", horizon=6, label_mode="none")
+    merged = t.rename(columns={"value":"historico"}).merge(fc, on="date", how="outer").sort_values("date")
+    merged["period"] = merged["date"].dt.to_period("M").astype(str)
+    table = dbc.Table.from_dataframe(merged, striped=True, hover=True, bordered=False)
+    return dbc.Row([
+        dbc.Col(dcc.Graph(figure=fig), md=7),
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.H6("Datos de pronóstico TX"),
+            dbc.Button("Descargar CSV", id="btn-dl-tx", color="primary", className="mb-2"),
+            table
+        ])), md=5)
+    ])
+
 
     if tab=="tab-cohort":
         m = f[f["metric"]=="MRR"].copy()
@@ -316,3 +355,17 @@ def dl_country(n, z, t, c, data):
 
 if __name__ == "__main__":
     app.run_server(debug=True)
+
+@app.callback(
+    Output("dl-tx-forecast","data"),
+    Input("btn-dl-tx","n_clicks"),
+    State("zona-dd","value"), State("type-dd","value"), State("client-dd","value"), State("data-store","data"),
+    prevent_initial_call=True
+)
+def dl_tx(n, z, t, c, data):
+    d = pd.DataFrame(data or []); f = apply_filters(d, z, t, c)
+    tx = f[f["metric"]=="Transactions"].groupby("date", as_index=False)["value"].sum().sort_values("date")
+    fc = fit_prophet(tx, horizon=6)
+    merged = tx.rename(columns={"value":"historico"}).merge(fc, on="date", how="outer").sort_values("date")
+    merged["period"] = merged["date"].dt.to_period("M").astype(str)
+    return dcc.send_data_frame(merged.to_csv, "tx_consolidado_forecast.csv", index=False)
