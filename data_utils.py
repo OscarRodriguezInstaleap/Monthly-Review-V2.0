@@ -81,14 +81,66 @@ def to_long(df: pd.DataFrame, metric: str) -> pd.DataFrame:
         if col not in long.columns: long[col] = None
     return long
 
+# data_utils.py — reemplaza SOLO esta función
+
 def build_unified_long(sheet_id: str, sheets=("MRR","CIHS","Transactions")) -> pd.DataFrame:
+    """
+    Lee hojas desde Google Sheets en formato CSV (gviz) y arma un dataframe long unificado.
+    Tolera alias de nombres de pestañas y falla por hoja (no por todo).
+    """
+    # Aliases tolerados por métrica
+    CANDIDATES = {
+        "MRR": ["MRR", "Revenue", "Ingresos", "MRR$"],
+        "CIHS": ["CIHS", "Health", "Adopcion", "Adopción"],
+        "Transactions": ["Transactions", "Transacciones", "Orders", "TX"],
+    }
+
     parts = []
+    used_tabs = []
+
+    def _try_add(tab_name: str, metric_name: str):
+        try:
+            df = read_gsheet_csv(sheet_id, tab_name)
+            parts.append(to_long(df, metric_name))
+            used_tabs.append((metric_name, tab_name))
+            return True
+        except Exception:
+            return False
+
+    # 1) Primero intenta con los nombres pasados explícitos (param sheets)
     for s in sheets:
-        df = read_gsheet_csv(sheet_id, s)
         key = s.strip().lower()
-        if key in ("mrr","revenue"): parts.append(to_long(df, "MRR"))
-        elif key in ("cihs","health"): parts.append(to_long(df, "CIHS"))
-        else: parts.append(to_long(df, "Transactions"))
+        if key in ("mrr", "revenue"):
+            if not _try_add(s, "MRR"):
+                # intenta alias
+                for alt in CANDIDATES["MRR"]:
+                    if alt == s: continue
+                    if _try_add(alt, "MRR"): break
+        elif key in ("cihs", "health"):
+            if not _try_add(s, "CIHS"):
+                for alt in CANDIDATES["CIHS"]:
+                    if alt == s: continue
+                    if _try_add(alt, "CIHS"): break
+        else:
+            # Transactions (o cualquier otro nombre)
+            if not _try_add(s, "Transactions"):
+                for alt in CANDIDATES["Transactions"]:
+                    if alt == s: continue
+                    if _try_add(alt, "Transactions"): break
+
+    # 2) Si por algún motivo no se agregó nada, intenta al menos los defaults
+    if not parts:
+        for metric, candidates in CANDIDATES.items():
+            for tab in candidates:
+                if _try_add(tab, metric): break
+
+    if not parts:
+        # Nada de nada: devuelve un dataframe vacío con columnas esperadas
+        return pd.DataFrame(columns=["type","zona","nuevo","cliente","razon_social","pais","date","period","value","metric"])
+
+    # Log útil en Render (verás en “Logs” qué pestañas se usaron realmente)
+    print("✅ Hojas detectadas:", used_tabs)
+
     all_df = pd.concat(parts, ignore_index=True)
 
     # Normaliza meta y completa últimos no-nulos por cliente (para zona/type/pais, etc.)
